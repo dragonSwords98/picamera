@@ -91,13 +91,13 @@ def use_video_port(request):
 def burst(request):
     return request.param
 
-def expected_failures(resolution, format, use_video_port):
-    if resolution == (2592, 1944) and format == 'gif' and not use_video_port:
-        pytest.xfail('Camera fails to produce output with max. res GIFs')
-    if resolution == (2592, 1944) and format == 'bmp':
-        pytest.xfail('Camera fails to produce output with max. res BMPs')
+def expected_failures(resolution, format, use_video_port, burst=False):
+    if resolution == (2592, 1944) and format in ('gif', 'bmp'):
+        pytest.xfail('Camera fails to produce output with max. res BMPs or GIFs')
     if resolution == (2592, 1944) and format in ('rgba', 'bgra') and not use_video_port:
         pytest.xfail('Camera runs out of memory with this combination')
+    if use_video_port and burst:
+        pytest.xfail('Burst captures not supported with use_video_port')
 
 
 def test_capture_to_file(
@@ -131,79 +131,80 @@ def test_capture_continuous_to_file(
         camera, mode, ext_format_options, tempdir, use_video_port, burst):
     ext, format, options = ext_format_options
     resolution, framerate = mode
-    expected_failures(resolution, format, use_video_port)
-    try:
-        for i, filename in enumerate(
-                camera.capture_continuous(os.path.join(
-                    tempdir, 'image{counter:02d}%s' % ext),
-                    format=format if format in RAW_FORMATS else None,
-                    use_video_port=use_video_port, burst=burst)):
-            verify_image(filename, format, resolution)
-            if i == 3:
-                break
-    except picamera.PiCameraRuntimeError:
-        assert use_video_port and burst
+    expected_failures(resolution, format, use_video_port, burst)
+    for i, filename in enumerate(
+            camera.capture_continuous(os.path.join(
+                tempdir, 'image{counter:02d}%s' % ext),
+                format=format if format in RAW_FORMATS else None,
+                use_video_port=use_video_port, burst=burst)):
+        verify_image(filename, format, resolution)
+        if i == 3:
+            break
 
 def test_capture_continuous_to_stream(
         camera, mode, format_options, use_video_port, burst):
     format, options = format_options
     resolution, framerate = mode
-    expected_failures(resolution, format, use_video_port)
+    expected_failures(resolution, format, use_video_port, burst)
     stream = io.BytesIO()
-    try:
-        for i, foo in enumerate(
-                camera.capture_continuous(stream, format=format,
-                    use_video_port=use_video_port, burst=burst)):
-            stream.truncate()
-            stream.seek(0)
-            verify_image(stream, format, resolution)
-            stream.seek(0)
-            if i == 3:
-                break
-    except picamera.PiCameraRuntimeError:
-        assert use_video_port and burst
+    for i, foo in enumerate(
+            camera.capture_continuous(stream, format=format,
+                use_video_port=use_video_port, burst=burst)):
+        stream.truncate()
+        stream.seek(0)
+        verify_image(stream, format, resolution)
+        stream.seek(0)
+        if i == 3:
+            break
 
 def test_capture_sequence_to_file(
         camera, mode, ext_format_options, tempdir, use_video_port, burst):
     ext, format, options = ext_format_options
     resolution, framerate = mode
-    expected_failures(resolution, format, use_video_port)
+    expected_failures(resolution, format, use_video_port, burst)
     filenames = [
-            os.path.join(tempdir, 'image%d%s' % (i, ext))
-            for i in range(3)
-            ]
-    try:
-        camera.capture_sequence(
-                filenames, format=format,
-                use_video_port=use_video_port, burst=burst)
-        for filename in filenames:
-            verify_image(filename, format, resolution)
-    except picamera.PiCameraRuntimeError:
-        assert use_video_port and burst
+        os.path.join(tempdir, 'image%d%s' % (i, ext))
+        for i in range(3)
+        ]
+    camera.capture_sequence(
+            filenames, format=format,
+            use_video_port=use_video_port, burst=burst)
+    for filename in filenames:
+        verify_image(filename, format, resolution)
 
 def test_capture_sequence_to_stream(
         camera, mode, format_options, use_video_port, burst):
     format, options = format_options
     resolution, framerate = mode
-    expected_failures(resolution, format, use_video_port)
+    expected_failures(resolution, format, use_video_port, burst)
     streams = [io.BytesIO() for i in range(3)]
-    try:
-        camera.capture_sequence(
-                streams, format=format,
-                use_video_port=use_video_port, burst=burst)
-        for stream in streams:
-            stream.seek(0)
-            verify_image(stream, format, resolution)
-    except picamera.PiCameraRuntimeError:
-        assert use_video_port and burst
+    camera.capture_sequence(
+            streams, format=format,
+            use_video_port=use_video_port, burst=burst)
+    for stream in streams:
+        stream.seek(0)
+        verify_image(stream, format, resolution)
 
 def test_capture_bayer(camera, mode):
     stream = io.BytesIO()
     camera.capture(stream, format='jpeg', bayer=True)
     # Bayer data is always the last 6404096 bytes of the stream, and starts
     # with 'BRCM'
-    stream.seek(-6404096, io.SEEK_END)
-    assert stream.read(4) == 'BRCM'
+    if camera.exif_tags['IFD0.Model'].upper() == 'RP_OV5647':
+        stream.seek(-6404096, io.SEEK_END)
+    else:
+        stream.seek(-10270208, io.SEEK_END)
+    assert stream.read(4) == b'BRCM'
+
+def test_capture_sequence_bayer(camera, mode):
+    streams = [io.BytesIO() for i in range(3)]
+    camera.capture_sequence(streams, format='jpeg', bayer=True)
+    for stream in streams:
+        if camera.exif_tags['IFD0.Model'].upper() == 'RP_OV5647':
+            stream.seek(-6404096, io.SEEK_END)
+        else:
+            stream.seek(-10270208, io.SEEK_END)
+        assert stream.read(4) == b'BRCM'
 
 def test_exif_ascii(camera, mode):
     camera.exif_tags['IFD0.Artist'] = 'Me!'
@@ -243,4 +244,16 @@ def test_capture_bad_format(camera):
         camera.capture('test.tiff')
     with pytest.raises(picamera.PiCameraValueError):
         camera.capture('test.jpg', format='tiff')
+
+def test_capture_bad_burst(camera):
+    with pytest.raises(picamera.PiCameraValueError):
+        camera.capture_sequence(['test.jpg'], use_video_port=True, burst=True)
+    with pytest.raises(picamera.PiCameraValueError):
+        camera.capture('test.jpg', use_video_port=True, burst=True)
+
+def test_capture_bytes_filename(camera, tmpdir):
+    camera.capture(str(tmpdir.join('test.jpg')).encode('utf-8'))
+
+def test_capture_bytes_format(camera, tmpdir):
+    camera.capture(str(tmpdir.join('test.jpg')), b'jpeg')
 

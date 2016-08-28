@@ -245,6 +245,17 @@ def test_multi_res_record(camera, mode):
     verify_video(v_stream1, 'h264', resolution)
     verify_video(v_stream2, 'h264', new_res)
 
+def test_macroblock_limit(camera):
+    res, fps = camera.resolution, camera.framerate
+    try:
+        camera.resolution = '1080p'
+        camera.framerate = 31
+        with pytest.raises(picamera.PiCameraValueError):
+            camera.start_recording(os.devnull, 'h264')
+    finally:
+        camera.resolution = res
+        camera.framerate = fps
+
 class SizeTest(object):
     def __init__(self):
         self.size = 0
@@ -266,10 +277,10 @@ def test_multi_res_record_len(camera, mode):
         camera.wait_recording(1)
     finally:
         camera.stop_recording()
-    # output1's size should be approximately twice output2's; we give it a bit
-    # of leeway here (50%) in the test as waiting for an I-frame in slower
-    # framerates can lead to a failure otherwise
-    assert output1.size > (output2.size * 1.5)
+    # output1's size should be larger than output2's although given H.264 is
+    # impressively efficient we really can't say by how much!
+    assert output2.size > 0
+    assert output1.size > output2.size
 
 class MotionTest(object):
     def __init__(self, camera):

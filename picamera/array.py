@@ -58,15 +58,18 @@ motion_dtype = np.dtype([
     ])
 
 
-def raw_resolution(resolution):
+def raw_resolution(resolution, splitter=False):
     """
     Round a (width, height) tuple up to the nearest multiple of 32 horizontally
     and 16 vertically (as this is what the Pi's camera module does for
     unencoded output).
     """
     width, height = resolution
-    fwidth = (width + 31) // 32 * 32
-    fheight = (height + 15) // 16 * 16
+    if splitter:
+        fwidth = (width + 15) & ~15
+    else:
+        fwidth = (width + 31) & ~31
+    fheight = (height + 15) & ~15
     return fwidth, fheight
 
 
@@ -101,9 +104,13 @@ def bytes_to_rgb(data, resolution):
     """
     width, height = resolution
     fwidth, fheight = raw_resolution(resolution)
+    # Workaround: output from the video splitter is rounded to 16x16 instead
+    # of 32x16 (but only for RGB, and only when a resizer is not used)
     if len(data) != (fwidth * fheight * 3):
-        raise PiCameraValueError(
-            'Incorrect buffer length for resolution %dx%d' % (width, height))
+        fwidth, fheith = raw_resolution(resolution, splitter=True)
+        if len(data) != (fwidth * fheight * 3):
+            raise PiCameraValueError(
+                'Incorrect buffer length for resolution %dx%d' % (width, height))
     # Crop to the actual resolution
     return np.frombuffer(data, dtype=np.uint8).\
             reshape((fheight, fwidth, 3))[:height, :width, :]
@@ -249,9 +256,9 @@ class PiYUVArray(PiArrayOutput):
                 print(output.rgb_array.shape)
 
     If you are using the GPU resizer when capturing (with the *resize*
-    parameter of the various :meth:`~PiCamera.capture` methods), specify the
-    resized resolution as the optional *size* parameter when constructing the
-    array output::
+    parameter of the various :meth:`~picamera.PiCamera.capture` methods),
+    specify the resized resolution as the optional *size* parameter when
+    constructing the array output::
 
         import picamera
         import picamera.array
@@ -273,12 +280,13 @@ class PiYUVArray(PiArrayOutput):
     def flush(self):
         super(PiYUVArray, self).flush()
         self.array = bytes_to_yuv(self.getvalue(), self.size or self.camera.resolution)
+        self._rgb = None
 
     @property
     def rgb_array(self):
         if self._rgb is None:
             # Apply the standard biases
-            YUV = self.array.copy()
+            YUV = self.array.astype(float)
             YUV[:, :, 0]  = YUV[:, :, 0]  - 16  # Offset Y by 16
             YUV[:, :, 1:] = YUV[:, :, 1:] - 128 # Offset UV by 128
             # YUV conversion matrix from ITU-R BT.601 version (SDTV)
@@ -297,10 +305,10 @@ class PiBayerArray(PiArrayOutput):
     Produces a 3-dimensional RGB array from raw Bayer data.
 
     This custom output class is intended to be used with the
-    :meth:`~PiCamera.capture` method, with the *bayer* parameter set to
-    ``True``, to include raw Bayer data in the JPEG output.  The class strips
-    out the raw data, constructing a 3-dimensional numpy array organized as
-    (rows, columns, colors). The resulting data is accessed via the
+    :meth:`~picamera.PiCamera.capture` method, with the *bayer* parameter set
+    to ``True``, to include raw Bayer data in the JPEG output.  The class
+    strips out the raw data, constructing a 3-dimensional numpy array organized
+    as (rows, columns, colors). The resulting data is accessed via the
     :attr:`~PiArrayOutput.array` attribute::
 
         import picamera
@@ -311,11 +319,12 @@ class PiBayerArray(PiArrayOutput):
                 camera.capture(output, 'jpeg', bayer=True)
                 print(output.array.shape)
 
-    Note that Bayer data is *always* full resolution, so the resulting array
-    always has the shape (1944, 2592, 3); this also implies that the optional
-    *size* parameter (for specifying a resizer resolution) is not available
-    with this array class. As the sensor records 10-bit values, the array uses
-    the unsigned 16-bit integer data type.
+    Note that Bayer data is *always* full resolution, so the resulting
+    array always has the shape (1944, 2592, 3) with the V1 module, or
+    (2464, 3280, 3) with the V2 module; this also implies that the
+    optional *size* parameter (for specifying a resizer resolution) is not
+    available with this array class. As the sensor records 10-bit values,
+    the array uses the unsigned 16-bit integer data type.
 
     By default, `de-mosaicing`_ is **not** performed; if the resulting array is
     viewed it will therefore appear dark and too green (due to the green bias
@@ -346,14 +355,22 @@ class PiBayerArray(PiArrayOutput):
     def flush(self):
         super(PiBayerArray, self).flush()
         self._demo = None
+        ver = 1
         data = self.getvalue()[-6404096:]
         if data[:4] != b'BRCM':
-            raise PiCameraValueError('Unable to locate Bayer data at end of buffer')
+            ver = 2
+            data = self.getvalue()[-10270208:]
+            if data[:4] != b'BRCM':
+                raise PiCameraValueError('Unable to locate Bayer data at end of buffer')
         # Strip header
         data = data[32768:]
         # Reshape into 2D pixel values
+        reshape, crop = {
+            1: ((1952, 3264), (1944, 3240)),
+            2: ((2480, 4128), (2464, 4100)),
+            }[ver]
         data = np.frombuffer(data, dtype=np.uint8).\
-                reshape((1952, 3264))[:1944, :3240]
+                reshape(reshape)[:crop[0], :crop[1]]
         # Unpack 10-bit values; every 5 bytes contains the high 8-bits of 4
         # values followed by the low 2-bits of 4 values packed into the fifth
         # byte
@@ -426,12 +443,12 @@ class PiMotionArray(PiArrayOutput):
     Produces a 3-dimensional array of motion vectors from the H.264 encoder.
 
     This custom output class is intended to be used with the *motion_output*
-    parameter of the :meth:`~PiCamera.start_recording` method.  Once recording
-    has finished, the class generates a 3-dimensional numpy array organized as
-    (frames, rows, columns) where ``rows`` and ``columns`` are the number of
-    rows and columns of `macro-blocks`_ (16x16 pixel blocks) in the original
-    frames. There is always one extra column of macro-blocks present in motion
-    vector data.
+    parameter of the :meth:`~picamera.PiCamera.start_recording` method.  Once
+    recording has finished, the class generates a 3-dimensional numpy array
+    organized as (frames, rows, columns) where ``rows`` and ``columns`` are the
+    number of rows and columns of `macro-blocks`_ (16x16 pixel blocks) in the
+    original frames. There is always one extra column of macro-blocks present
+    in motion vector data.
 
     The data-type of the :attr:`~PiArrayOutput.array` is an (x, y, sad)
     structure where ``x`` and ``y`` are signed 1-byte values, and ``sad`` is an
@@ -535,8 +552,8 @@ class PiRGBAnalysis(PiAnalysisOutput):
     Provides a basis for per-frame RGB analysis classes.
 
     This custom output class is intended to be used with the
-    :meth:`~PiCamera.start_recording` method when it is called with *format*
-    set to ``'rgb'`` or ``'bgr'``. While recording is in progress, the
+    :meth:`~picamera.PiCamera.start_recording` method when it is called with
+    *format* set to ``'rgb'`` or ``'bgr'``. While recording is in progress, the
     :meth:`~PiAnalysisOutput.write` method converts incoming frame data into a
     numpy array and calls the stub :meth:`~PiAnalysisOutput.analyze` method
     with the resulting array (this deliberately raises
@@ -567,8 +584,8 @@ class PiYUVAnalysis(PiAnalysisOutput):
     Provides a basis for per-frame YUV analysis classes.
 
     This custom output class is intended to be used with the
-    :meth:`~PiCamera.start_recording` method when it is called with *format*
-    set to ``'yuv'``. While recording is in progress, the
+    :meth:`~picamera.PiCamera.start_recording` method when it is called with
+    *format* set to ``'yuv'``. While recording is in progress, the
     :meth:`~PiAnalysisOutput.write` method converts incoming frame data into a
     numpy array and calls the stub :meth:`~PiAnalysisOutput.analyze` method
     with the resulting array (this deliberately raises
@@ -601,11 +618,11 @@ class PiMotionAnalysis(PiAnalysisOutput):
     Provides a basis for real-time motion analysis classes.
 
     This custom output class is intended to be used with the *motion_output*
-    parameter of the :meth:`~PiCamera.start_recording` method.  While recording
-    is in progress, the write method converts incoming motion data into numpy
-    arrays and calls the stub :meth:`~PiAnalysisOutput.analyze` method with the
-    resulting array (which deliberately raises :exc:`NotImplementedError` in
-    this class).
+    parameter of the :meth:`~picamera.PiCamera.start_recording` method.  While
+    recording is in progress, the write method converts incoming motion data
+    into numpy arrays and calls the stub :meth:`~PiAnalysisOutput.analyze`
+    method with the resulting array (which deliberately raises
+    :exc:`NotImplementedError` in this class).
 
     .. note::
 
@@ -652,7 +669,7 @@ class PiMotionAnalysis(PiAnalysisOutput):
 
     You can use the optional *size* parameter to specify the output resolution
     of the GPU resizer, if you are using the *resize* parameter of
-    :meth:`~PiCamera.start_recording`.
+    :meth:`~picamera.PiCamera.start_recording`.
     """
 
     def __init__(self, camera, size=None):

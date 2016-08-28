@@ -152,12 +152,12 @@ the camera's exposure time, white balance, and gains are all fixed:
 
 * To fix exposure time, set the :attr:`~PiCamera.shutter_speed` attribute to a
   reasonable value.
+* Optionally, set :attr:`~PiCamera.iso` to a fixed value.
 * To fix exposure gains, let :attr:`~PiCamera.analog_gain` and
   :attr:`~PiCamera.digital_gain` settle on reasonable values, then set
   :attr:`~PiCamera.exposure_mode` to ``'off'``.
 * To fix white balance, set the :attr:`~PiCamera.awb_mode` to ``'off'``, then
   set :attr:`~PiCamera.awb_gains` to a (red, blue) tuple of gains.
-* Optionally, set :attr:`~PiCamera.iso` to a fixed value.
 
 It can be difficult to know what appropriate values might be for these
 attributes.  For :attr:`~PiCamera.iso`, a simple rule of thumb is that 100 and
@@ -178,6 +178,8 @@ The following script provides a brief example of configuring these settings::
     from picamera import PiCamera
 
     camera = PiCamera(resolution=(1280, 720), framerate=30)
+    # Set ISO to the desired value
+    camera.iso = 100
     # Wait for the automatic gain control to settle
     sleep(2)
     # Now fix the values
@@ -248,8 +250,8 @@ gain, and a long exposure time to allow the camera to gather as much light as
 possible. However, the :attr:`~PiCamera.shutter_speed` attribute is constrained
 by the camera's :attr:`~PiCamera.framerate` so the first thing we need to do is
 set a very slow framerate. The following script captures an image with a 6
-second exposure time (the maximum the Pi's camera module is currently capable
-of)::
+second exposure time (the maximum the Pi's V1 camera module is capable of; the
+V2 camera module can manage 10 second exposures)::
 
     from picamera import PiCamera
     from time import sleep

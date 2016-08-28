@@ -142,7 +142,7 @@ def test_awb_gains(camera, previewing):
 
     def check_gains(red, blue):
         # The camera needs some time to let the AWB gains adjust
-        time.sleep(0.1)
+        time.sleep(0.4)
         # The gains we get back aren't absolutely precise, but they're
         # close (+/- 0.05)
         r, b = camera.awb_gains
@@ -235,7 +235,7 @@ def test_image_effects1(camera, previewing):
                     camera.image_effect_params = params
                     assert camera.image_effect_params == params
     finally:
-        camera.effect = 'none'
+        camera.image_effect = 'none'
 
 def test_image_effects2(camera, previewing):
     invalid_combinations = {
@@ -366,6 +366,32 @@ def test_preview_window(camera, previewing):
         camera.preview.window = (0, 0, 1920, 1080)
         assert camera.preview.window == (0, 0, 1920, 1080)
 
+def test_preview_resolution(camera, previewing):
+    if previewing:
+        save_resolution = camera.resolution
+        try:
+            camera.resolution = (640, 480)
+            assert camera.preview.resolution is None
+            camera.preview.resolution = (320, 240)
+            assert camera.preview.resolution == (320, 240)
+            assert camera._camera.outputs[0].framesize == (320, 240)
+            assert camera._camera.outputs[2].framesize == (640, 480)
+            camera.resolution = (320, 240)
+            assert camera.preview.resolution is None
+            assert camera._camera.outputs[0].framesize == (320, 240)
+            assert camera._camera.outputs[2].framesize == (320, 240)
+            camera.resolution = (1280, 720)
+            assert camera.resolution == (1280, 720)
+            assert camera.preview.resolution is None
+            assert camera._camera.outputs[0].framesize == (1280, 720)
+            assert camera._camera.outputs[2].framesize == (1280, 720)
+            with pytest.raises(picamera.PiCameraValueError):
+                camera.preview.resolution = (1281, 720)
+            with pytest.raises(picamera.PiCameraValueError):
+                camera.preview.resolution = (1280, 721)
+        finally:
+            camera.resolution = save_resolution
+
 def test_preview_rotation(camera, previewing):
     if previewing:
         save_value = camera.preview.rotation
@@ -397,6 +423,11 @@ def test_sensor_mode(camera, previewing):
             camera.sensor_mode = 10
     finally:
         camera.sensor_mode = save_mode
+
+def test_framerate_delta(camera, previewing):
+    for num in range(-10, 11):
+        camera.framerate_delta = num / 10
+        assert Fraction(num, 10) - Fraction(1, 256) <= camera.framerate_delta <= Fraction(num, 10) + Fraction(1, 256)
 
 def test_framerate(camera, previewing):
     save_framerate = camera.framerate
@@ -431,7 +462,7 @@ def test_framerate(camera, previewing):
         with pytest.raises(picamera.PiCameraError):
             camera.framerate = -1
         with pytest.raises(picamera.PiCameraError):
-            camera.framerate = 100
+            camera.framerate = 200
     finally:
         camera.framerate = save_framerate
 
@@ -441,32 +472,29 @@ def test_resolution(camera, previewing):
         # Test setting some regular resolutions
         camera.resolution = (320, 240)
         assert camera.resolution == (320, 240)
-        assert camera._camera[0].port[2][0].format[0].es[0].video.width == 320
-        assert camera._camera[0].port[2][0].format[0].es[0].video.height == 240
+        assert camera._camera.outputs[2].framesize == (320, 240)
         camera.resolution = (640, 480)
         assert camera.resolution == (640, 480)
-        assert camera._camera[0].port[2][0].format[0].es[0].video.width == 640
-        assert camera._camera[0].port[2][0].format[0].es[0].video.height == 480
+        assert camera._camera.outputs[2].framesize == (640, 480)
         camera.resolution = (1280, 720)
         assert camera.resolution == (1280, 720)
-        assert camera._camera[0].port[2][0].format[0].es[0].video.width == 1280
-        assert camera._camera[0].port[2][0].format[0].es[0].video.height == 720
+        assert camera._camera.outputs[2].framesize == (1280, 720)
         camera.resolution = (1920, 1080)
         assert camera.resolution == (1920, 1080)
         # Camera's vertical resolution is always a multiple of 16, and
         # horizontal is a multiple of 32, hence the difference in the video
         # formats here and below
-        assert camera._camera[0].port[2][0].format[0].es[0].video.width == 1920
-        assert camera._camera[0].port[2][0].format[0].es[0].video.height == 1088
+        assert camera._camera.outputs[2]._port[0].format[0].es[0].video.width == 1920
+        assert camera._camera.outputs[2]._port[0].format[0].es[0].video.height == 1088
         camera.resolution = (2592, 1944)
         assert camera.resolution == (2592, 1944)
-        assert camera._camera[0].port[2][0].format[0].es[0].video.width == 2592
-        assert camera._camera[0].port[2][0].format[0].es[0].video.height == 1952
+        assert camera._camera.outputs[2]._port[0].format[0].es[0].video.width == 2592
+        assert camera._camera.outputs[2]._port[0].format[0].es[0].video.height == 1952
         # Test some irregular resolutions
         camera.resolution = (100, 100)
         assert camera.resolution == (100, 100)
-        assert camera._camera[0].port[2][0].format[0].es[0].video.width == 128
-        assert camera._camera[0].port[2][0].format[0].es[0].video.height == 112
+        assert camera._camera.outputs[2]._port[0].format[0].es[0].video.width == 128
+        assert camera._camera.outputs[2]._port[0].format[0].es[0].video.height == 112
         # Anything below 16,16 will fail (because the camera's vertical
         # resolution works in increments of 16)
         with pytest.raises(picamera.PiCameraError):

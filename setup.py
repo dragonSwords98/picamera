@@ -52,10 +52,10 @@ except ImportError:
     pass
 
 __project__      = 'picamera'
-__version__      = '1.10'
+__version__      = '1.12'
 __author__       = 'Dave Jones'
 __author_email__ = 'dave@waveform.org.uk'
-__url__          = 'http://picamera.readthedocs.org/'
+__url__          = 'http://picamera.readthedocs.io/'
 __platforms__    = 'ALL'
 
 __classifiers__ = [

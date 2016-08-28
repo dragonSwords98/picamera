@@ -55,8 +55,8 @@ SUBDIRS:=
 DIST_EGG=dist/$(NAME)-$(VER)-$(PYVER).egg
 DIST_TAR=dist/$(NAME)-$(VER).tar.gz
 DIST_ZIP=dist/$(NAME)-$(VER).zip
-DIST_DEB=dist/python-$(NAME)_$(VER)$(DEB_SUFFIX)_all.deb \
-	dist/python3-$(NAME)_$(VER)$(DEB_SUFFIX)_all.deb \
+DIST_DEB=dist/python-$(NAME)_$(VER)$(DEB_SUFFIX)_armhf.deb \
+	dist/python3-$(NAME)_$(VER)$(DEB_SUFFIX)_armhf.deb \
 	dist/python-$(NAME)-docs_$(VER)$(DEB_SUFFIX)_all.deb \
 	dist/$(NAME)_$(VER)$(DEB_SUFFIX)_$(DEB_ARCH).changes
 DIST_DSC=dist/$(NAME)_$(VER)$(DEB_SUFFIX).tar.gz \
@@ -169,11 +169,11 @@ release: $(PY_SOURCES) $(DOC_SOURCES) $(DEB_SOURCES)
 	git commit debian/changelog -m "Updated changelog for release $(VER)"
 	git tag -s release-$(VER) -m "Release $(VER)"
 	# update the package's registration on PyPI (in case any metadata's changed)
-	$(PYTHON) $(PYFLAGS) setup.py register
+	$(PYTHON) $(PYFLAGS) setup.py register -r https://pypi.python.org/pypi
 
 upload: $(PY_SOURCES) $(DOC_SOURCES) $(DIST_DEB) $(DIST_DSC)
 	# build a source archive and upload to PyPI
-	$(PYTHON) $(PYFLAGS) setup.py sdist upload
+	$(PYTHON) $(PYFLAGS) setup.py sdist upload -r https://pypi.python.org/pypi
 	# build the deb source archive and upload to Raspbian
 	dput raspberrypi dist/$(NAME)_$(VER)$(DEB_SUFFIX)_source.changes
 	dput raspberrypi dist/$(NAME)_$(VER)$(DEB_SUFFIX)_$(DEB_ARCH).changes

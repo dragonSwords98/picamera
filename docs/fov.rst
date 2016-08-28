@@ -16,7 +16,8 @@ level software interface that picamera utilizes.
 Camera Modes
 ============
 
-The Pi's camera has a discrete set of input modes which are as follows:
+The Pi's camera has a discrete set of input modes. On the V1 camera these are
+as follows:
 
 +---+------------+--------------+-------------+-------+-------+---------+---------+
 | # | Resolution | Aspect Ratio | Framerates  | Video | Image | FoV     | Binning |
@@ -43,45 +44,73 @@ The Pi's camera has a discrete set of input modes which are as follows:
     FoV. Please use ``sudo apt-get dist-upgrade`` to upgrade to the latest
     firmware.
 
-Modes with full field of view (FoV) capture from the whole area of the
-camera's sensor (2592x1944 pixels), using the specified amount of `binning`_
-to achieve the requested resolution. Modes with partial FoV only capture from
-the center 1920x1080 pixels. The difference between these areas is shown in
-the illustration below:
+On the V2 camera, these are:
 
-.. image:: sensor_area.png
++---+------------+--------------+------------+-------+-------+---------+---------+
+| # | Resolution | Aspect Ratio | Framerates | Video | Image | FoV     | Binning |
++===+============+==============+============+=======+=======+=========+=========+
+| 1 | 1920x1080  | 16:9         | 0.1-30fps  | x     |       | Partial | None    |
++---+------------+--------------+------------+-------+-------+---------+---------+
+| 2 | 3280x2464  | 4:3          | 0.1-15fps  | x     | x     | Full    | None    |
++---+------------+--------------+------------+-------+-------+---------+---------+
+| 3 | 3280x2464  | 4:3          | 0.1-15fps  | x     | x     | Full    | None    |
++---+------------+--------------+------------+-------+-------+---------+---------+
+| 4 | 1640x1232  | 4:3          | 0.1-40fps  | x     |       | Full    | 2x2     |
++---+------------+--------------+------------+-------+-------+---------+---------+
+| 5 | 1640x922   | 16:9         | 0.1-40fps  | x     |       | Full    | 2x2     |
++---+------------+--------------+------------+-------+-------+---------+---------+
+| 6 | 1280x720   | 16:9         | 40-90fps   | x     |       | Partial | 2x2     |
++---+------------+--------------+------------+-------+-------+---------+---------+
+| 7 | 640x480    | 4:3          | 40-90fps   | x     |       | Partial | 2x2     |
++---+------------+--------------+------------+-------+-------+---------+---------+
+
+Modes with full field of view (FoV) capture from the whole area of the camera's
+sensor (2592x1944 pixels for the V1 camera, 3280x2464 for the V2 camera).
+Modes with partial FoV capture from the center of the sensor. The combination
+of FoV limiting, and `binning`_ is used to achieve the requested resolution.
+
+The image below illustrates the difference between full and partial FoV for
+the V1 camera:
+
+.. image:: sensor_area_1.png
+    :width: 640px
+    :align: center
+
+While the various FoVs for the V2 camera are illustrated in the following
+image:
+
+.. image:: sensor_area_2.png
     :width: 640px
     :align: center
 
 The input mode can be manually specified with the *sensor_mode* parameter in
 the :class:`PiCamera` constructor (using one of the values from the # column in
-the table above). This defaults to 0 indicating that the mode should be
+the tables above). This defaults to 0 indicating that the mode should be
 selected automatically based on the requested :attr:`~PiCamera.resolution` and
 :attr:`~PiCamera.framerate`. The rules governing which input mode is selected
 are as follows:
 
-* The mode must be acceptable. Video modes can be used for video recording,
-  or for image captures from the video port (i.e. when *use_video_port* is
+* The mode must be acceptable. Video modes can be used for video recording, or
+  for image captures from the video port (i.e. when *use_video_port* is
   ``True`` in calls to the various capture methods). Image captures when
   *use_video_port* is ``False`` must use an image mode (of which only two
-  currently exist, both with the maximum resolution).
+  exist, both with the maximum resolution).
 
 * The closer the requested :attr:`~PiCamera.resolution` is to the mode's
   resolution the better, but downscaling from a higher input resolution is
   preferable to upscaling from a lower input resolution.
 
 * The requested :attr:`~PiCamera.framerate` should be within the range of the
-  input mode. Note that this is not a hard restriction (it is possible, but
-  unlikely, for the camera to select a mode that does not support the requested
-  framerate).
+  input mode.
 
-* The closer the aspect ratio of the requested :attr:`~PiCamera.resolution` is
-  to the mode's resolution, the better. Attempts to set resolutions with aspect
+* The closer the aspect ratio of the requested :attr:`~PiCamera.resolution` to
+  the mode's resolution, the better. Attempts to set resolutions with aspect
   ratios other than 4:3 or 16:9 (which are the only ratios directly supported
   by the modes in the table above) will choose the mode which maximizes the
   resulting FoV.
 
-A few examples are given below to clarify the operation of this heuristic:
+A few examples are given below to clarify the operation of this heuristic (note
+these examples assume the V1 camera module):
 
 * If you set the :attr:`~PiCamera.resolution` to 1024x768 (a 4:3 aspect ratio),
   and :attr:`~PiCamera.framerate` to anything less than 42fps, the 1296x972
@@ -109,6 +138,42 @@ A few examples are given below to clarify the operation of this heuristic:
 .. _binning: http://www.andor.com/learning-academy/ccd-binning-what-does-binning-mean
 
 
+.. _hardware_limits:
+
+Hardware Limits
+===============
+
+The are additional limits imposed by the GPU hardware that performs all
+image and video processing:
+
+* The maximum resolution for MJPEG recording depends partially on GPU
+  memory. If you get "Out of resource" errors with MJPEG recording at high
+  resolutions, try increasing ``gpu_mem`` in ``/boot/config.txt``.
+
+* The maximum horizontal resolution for default H264 recording is 1920.
+  Any attempt to recording H264 video at higher horizontal resolutions
+  will fail.
+
+* However, H264 high profile level 4.2 has slightly higher limits and may
+  succeed with higher resolutions.
+
+* The maximum resolution of the V2 camera can cause issues with previews.
+  Currently, picamera runs previews at the same resolution as captures
+  (equivalent to ``-fp`` in ``raspistill``).  You may need to increase
+  ``gpu_mem`` in ``/boot/config.txt`` to achieve full resolution operation
+  with the V2 camera module.
+
+* The maximum framerate of the camera depends on several factors. With
+  overclocking, 120fps has been achieved on a V2 module but 90fps is the
+  maximum supported framerate.
+
+* The maximum exposure time is currently 6 seconds on the V1 camera
+  module, and 10 seconds on the V2 camera module. Remember that exposure
+  time is limited by framerate, so you need to set an extremely slow
+  :attr:`~picamera.PiCamera.framerate` before setting
+  :attr:`~picamera.PiCamera.shutter_speed`.
+
+
 .. _under_the_hood:
 
 Under the Hood
@@ -117,9 +182,10 @@ Under the Hood
 This section attempts to provide detail of what picamera is doing "under the
 hood" in response to various method calls.
 
-The Pi's camera has three ports, the still port, the video port, and the
-preview port. The following sections describe how these ports are used by
-picamera and how they influence the camera's resolutions.
+The MMAL layer below picamera presents the camera with three ports: the
+still port, the video port, and the preview port. The following sections
+describe how these ports are used by picamera and how they influence the
+camera's resolutions.
 
 The Still Port
 --------------
@@ -191,27 +257,70 @@ When the ``resize`` parameter is passed to one of the aforementioned methods, a
 resizer component is placed between the camera's ports and the encoder, causing
 the output to be resized before it reaches the encoder. This is particularly
 useful for video recording, as the H.264 encoder cannot cope with full
-resolution input. Hence, when performing full frame video recording, the
-camera's setup looks like this:
+resolution input (the GPU hardware can only handle frame widths up to 1920
+pixels). Hence, when performing full frame video recording, the camera's setup
+looks like this:
 
 .. image:: video_fullfov_record.*
     :align: center
 
 Finally, when performing unencoded captures an encoder is (naturally) not
-required.  Instead data is taken directly from the camera's ports. When raw YUV
-format is requested no components are attached to the ports at all (as all
-ports default to YUV output). Likewise, when capturing unencoded from the still
-port no encoders are used; instead the still port is reconfigured to output
-the required encoding (RGB, RGBA, BGR, etc.)
+required.  Instead data is taken directly from the camera's ports. However,
+various firmware limitations require acrobatics in the pipeline to achieve
+requested encodings.
 
-However, the video port is fixed in YUV mode (the video encoders expect YUV
-input and the splitter cannot convert encodings). When another raw format like
-RGBA is requested, a resizer is used (with its output resolution set to the
-input resolution, unless the ``resize`` option is specified with something
-different), and its output format is set to the requested raw format:
+For example, in older firmwares the camera's still port cannot be configured
+for RGB output (due to a faulty buffer size check). However, they can be
+configured for YUV output so in this case picamera configures the still port
+for YUV output, attaches as resizer (configured with the same input and output
+resolution), then configures the resizer's output for RGBA (the resizer doesn't
+support RGB for some reason). It then runs the capture and strips the redundant
+alpha bytes off the data.
+
+Recent firmwares fix the buffer size check, so with these picamera will
+simply configure the still port for RGB output (since 1.11):
 
 .. image:: still_raw_capture.*
     :align: center
+
+Encodings
+---------
+
+A further complication is the "OPAQUE" encoding. This is the most efficient
+encoding to use when connecting MMAL components as it simply passes pointers
+around under the hood rather than full frame data. However, not all OPAQUE
+encodings are equivalent:
+
+* The preview port's OPAQUE encoding contains a single image.
+
+* The video port's OPAQUE encoding contains two images (used for motion
+  estimation by various encoders).
+
+* The still port's OPAQUE encoding contains strips of a single image.
+
+* The JPEG image encoder accepts the still port's OPAQUE strips format.
+
+* The MJPEG video encoder does *not* accept the OPAQUE strips format, only
+  the single and dual image variants provided by the preview or video ports.
+
+* The H264 video encoder in older firmwares only accepts the dual image
+  OPAQUE format (it will accept full-frame YUV input instead though). In newer
+  firmwares it now accepts the single image OPAQUE format too (presumably
+  constructing the second image itself for motion estimation).
+
+* The splitter accepts single or dual image OPAQUE input, but only outputs
+  single image OPAQUE input (or YUV; in later firmwares it also
+  supports RGB or BGR output).
+
+* The resizer theoretically accepts OPAQUE input (though the author hasn't
+  managed to get this working at the time of writing) but will only produce
+  YUV/RGBA/BGRA output.
+
+The new ``mmalobj`` layer introduced in picamera 1.11 is aware of these OPAQUE
+encoding differences and attempts to configure connections between components
+with the most efficient formats possible. However, it is not aware of firmware
+revisions so if you're playing with MMAL components via this layer be prepared
+to do some tinkering to get your pipeline working.
 
 Please note that even the description above is almost certainly far removed
 from what actually happens at the camera's ISP level. Rather, what has been

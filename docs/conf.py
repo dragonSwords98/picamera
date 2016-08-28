@@ -92,12 +92,13 @@ pygments_style = 'sphinx'
 # -- Autodoc configuration ------------------------------------------------
 
 autodoc_member_order = 'groupwise'
+autodoc_default_flags = ['members']
 
 # -- Intersphinx configuration --------------------------------------------
 
 intersphinx_mapping = {
-    'python': ('http://docs.python.org/3.4', None),
-    'numpy':  ('http://docs.scipy.org/doc/numpy/', None),
+    'python': ('https://docs.python.org/3.4', None),
+    'numpy':  ('https://docs.scipy.org/doc/numpy/', None),
     }
 
 # -- Options for HTML output ----------------------------------------------

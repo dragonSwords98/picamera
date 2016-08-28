@@ -75,9 +75,18 @@ def MMAL_FOURCC(s):
 
 MMAL_MAGIC = MMAL_FOURCC('mmal')
 
-MMAL_BOOL_T = ct.c_int32
 MMAL_FALSE = 0
 MMAL_TRUE = 1
+
+class MMAL_BOOL_T(ct.c_int32):
+    # This only exists to ensure we've got a distinct type to ct.c_int32
+    # for mmalobj to perform dict-lookups against
+    def __str__(self):
+        return ['MMAL_FALSE', 'MMAL_TRUE'][bool(self.value)]
+
+    def __repr__(self):
+        return str(self)
+
 
 class MMAL_CORE_STATISTICS_T(ct.Structure):
     _fields_ = [
@@ -142,8 +151,17 @@ class MMAL_RATIONAL_T(ct.Structure):
 MMAL_TIME_UNKNOWN = ct.c_int64(1<<63)
 
 class MMAL_FOURCC_T(ct.c_uint32):
+    def __eq__(self, other):
+        if isinstance(other, int):
+            return self.value == other
+        else:
+            return super(MMAL_FOURCC_T, self).__eq__(other)
+
+    def __str__(self):
+        return ''.join(chr(self.value >> i & 0xFF) for i in range(0, 32, 8))
+
     def __repr__(self):
-        return "MMAL_FOURCC('%s')" % ''.join(chr(self.value >> i & 0xFF) for i in range(0, 32, 8))
+        return "MMAL_FOURCC('%s')" % str(self)
 
 # mmal_format.h ##############################################################
 
@@ -608,7 +626,12 @@ class MMAL_PARAMETER_LOGGING_T(ct.Structure):
     MMAL_PARAMETER_STILLS_DENOISE,
     MMAL_PARAMETER_ANNOTATE,
     MMAL_PARAMETER_STEREOSCOPIC_MODE,
-) = range(MMAL_PARAMETER_GROUP_CAMERA, MMAL_PARAMETER_GROUP_CAMERA + 75)
+    MMAL_PARAMETER_CAMERA_INTERFACE,
+    MMAL_PARAMETER_CAMERA_CLOCKING_MODE,
+    MMAL_PARAMETER_CAMERA_RX_CONFIG,
+    MMAL_PARAMETER_CAMERA_RX_TIMING,
+    MMAL_PARAMETER_DPF_CONFIG,
+) = range(MMAL_PARAMETER_GROUP_CAMERA, MMAL_PARAMETER_GROUP_CAMERA + 80)
 
 class MMAL_PARAMETER_THUMBNAIL_CONFIG_T(ct.Structure):
     _fields_ = [
@@ -882,7 +905,7 @@ class MMAL_PARAMETER_FACE_TRACK_T(ct.Structure):
         ('quality',    ct.c_uint32),
         ]
 
-class MMAL_PARAMETER_FACE_TRACK_FACE_T (ct.Structure):
+class MMAL_PARAMETER_FACE_TRACK_FACE_T(ct.Structure):
     _fields_ = [
         ('face_id',    ct.c_int32),
         ('score',      ct.c_int32),
@@ -891,7 +914,7 @@ class MMAL_PARAMETER_FACE_TRACK_FACE_T (ct.Structure):
         ('mouth_rect', MMAL_RECT_T),
         ]
 
-class MMAL_PARAMETER_FACE_TRACK_RESULTS_T (ct.Structure):
+class MMAL_PARAMETER_FACE_TRACK_RESULTS_T(ct.Structure):
     _fields_ = [
         ('hdr',          MMAL_PARAMETER_HEADER_T),
         ('num_faces',    ct.c_uint32),
@@ -925,6 +948,7 @@ class MMAL_PARAMETER_CAMERA_CONFIG_T(ct.Structure):
 
 MMAL_PARAMETER_CAMERA_INFO_MAX_CAMERAS = 4
 MMAL_PARAMETER_CAMERA_INFO_MAX_FLASHES = 2
+MMAL_PARAMETER_CAMERA_INFO_MAX_STR_LEN = 16
 
 class MMAL_PARAMETER_CAMERA_INFO_CAMERA_T(ct.Structure):
     _fields_ = [
@@ -932,6 +956,15 @@ class MMAL_PARAMETER_CAMERA_INFO_CAMERA_T(ct.Structure):
         ('max_width',    ct.c_uint32),
         ('max_height',   ct.c_uint32),
         ('lens_present', MMAL_BOOL_T),
+        ]
+
+class MMAL_PARAMETER_CAMERA_INFO_CAMERA_V2_T(ct.Structure):
+    _fields_ = [
+        ('port_id',      ct.c_uint32),
+        ('max_width',    ct.c_uint32),
+        ('max_height',   ct.c_uint32),
+        ('lens_present', MMAL_BOOL_T),
+        ('camera_name',  ct.c_char * MMAL_PARAMETER_CAMERA_INFO_MAX_STR_LEN),
         ]
 
 MMAL_PARAMETER_CAMERA_INFO_FLASH_TYPE_T = ct.c_uint32 # enum
@@ -951,6 +984,15 @@ class MMAL_PARAMETER_CAMERA_INFO_T(ct.Structure):
         ('num_cameras', ct.c_uint32),
         ('num_flashes', ct.c_uint32),
         ('cameras',     MMAL_PARAMETER_CAMERA_INFO_CAMERA_T * MMAL_PARAMETER_CAMERA_INFO_MAX_CAMERAS),
+        ('flashes',     MMAL_PARAMETER_CAMERA_INFO_FLASH_T * MMAL_PARAMETER_CAMERA_INFO_MAX_FLASHES),
+        ]
+
+class MMAL_PARAMETER_CAMERA_INFO_V2_T(ct.Structure):
+    _fields_ = [
+        ('hdr',         MMAL_PARAMETER_HEADER_T),
+        ('num_cameras', ct.c_uint32),
+        ('num_flashes', ct.c_uint32),
+        ('cameras',     MMAL_PARAMETER_CAMERA_INFO_CAMERA_V2_T * MMAL_PARAMETER_CAMERA_INFO_MAX_CAMERAS),
         ('flashes',     MMAL_PARAMETER_CAMERA_INFO_FLASH_T * MMAL_PARAMETER_CAMERA_INFO_MAX_FLASHES),
         ]
 
@@ -1192,6 +1234,112 @@ class MMAL_PARAMETER_STEREOSCOPIC_MODE_T(ct.Structure):
         ('swap_eyes',  MMAL_BOOL_T),
         ]
 
+MMAL_CAMERA_INTERFACE_T = ct.c_uint32 # enum
+(
+    MMAL_CAMERA_INTERFACE_CSI2,
+    MMAL_CAMERA_INTERFACE_CCP2,
+    MMAL_CAMERA_INTERFACE_CPI,
+) = range(3)
+MMAL_CAMERA_INTERFACE_MAX = 0x7fffffff
+
+class MMAL_PARAMETER_CAMERA_INTERFACE_T(ct.Structure):
+    _fields_ = [
+        ('hdr',       MMAL_PARAMETER_HEADER_T),
+        ('mode',      MMAL_CAMERA_INTERFACE_T),
+        ]
+
+MMAL_CAMERA_CLOCKING_MODE_T = ct.c_uint32 # enum
+(
+    MMAL_CAMERA_CLOCKING_MODE_STROBE,
+    MMAL_CAMERA_CLOCKING_MODE_CLOCK,
+) = range(2)
+MMAL_CAMERA_CLOCKING_MODE_MAX = 0x7fffffff
+
+class MMAL_PARAMETER_CAMERA_CLOCKING_MODE_T(ct.Structure):
+    _fields_ = [
+        ('hdr',       MMAL_PARAMETER_HEADER_T),
+        ('mode',      MMAL_CAMERA_CLOCKING_MODE_T),
+        ]
+
+MMAL_CAMERA_RX_CONFIG_DECODE = ct.c_uint32 # enum
+(
+   MMAL_CAMERA_RX_CONFIG_DECODE_NONE,
+   MMAL_CAMERA_RX_CONFIG_DECODE_DPCM8TO10,
+   MMAL_CAMERA_RX_CONFIG_DECODE_DPCM7TO10,
+   MMAL_CAMERA_RX_CONFIG_DECODE_DPCM6TO10,
+   MMAL_CAMERA_RX_CONFIG_DECODE_DPCM8TO12,
+   MMAL_CAMERA_RX_CONFIG_DECODE_DPCM7TO12,
+   MMAL_CAMERA_RX_CONFIG_DECODE_DPCM6TO12,
+   MMAL_CAMERA_RX_CONFIG_DECODE_DPCM10TO14,
+   MMAL_CAMERA_RX_CONFIG_DECODE_DPCM8TO14,
+   MMAL_CAMERA_RX_CONFIG_DECODE_DPCM12TO16,
+   MMAL_CAMERA_RX_CONFIG_DECODE_DPCM10TO16,
+   MMAL_CAMERA_RX_CONFIG_DECODE_DPCM8TO16,
+) = range(12)
+MMAL_CAMERA_RX_CONFIG_DECODE_MAX = 0x7fffffff
+
+MMAL_CAMERA_RX_CONFIG_ENCODE = ct.c_uint32 # enum
+(
+   MMAL_CAMERA_RX_CONFIG_ENCODE_NONE,
+   MMAL_CAMERA_RX_CONFIG_ENCODE_DPCM10TO8,
+   MMAL_CAMERA_RX_CONFIG_ENCODE_DPCM12TO8,
+   MMAL_CAMERA_RX_CONFIG_ENCODE_DPCM14TO8,
+) = range(4)
+MMAL_CAMERA_RX_CONFIG_ENCODE_MAX = 0x7fffffff
+
+MMAL_CAMERA_RX_CONFIG_UNPACK = ct.c_uint32 # enum
+(
+   MMAL_CAMERA_RX_CONFIG_UNPACK_NONE,
+   MMAL_CAMERA_RX_CONFIG_UNPACK_6,
+   MMAL_CAMERA_RX_CONFIG_UNPACK_7,
+   MMAL_CAMERA_RX_CONFIG_UNPACK_8,
+   MMAL_CAMERA_RX_CONFIG_UNPACK_10,
+   MMAL_CAMERA_RX_CONFIG_UNPACK_12,
+   MMAL_CAMERA_RX_CONFIG_UNPACK_14,
+   MMAL_CAMERA_RX_CONFIG_UNPACK_16,
+) = range(8)
+MMAL_CAMERA_RX_CONFIG_UNPACK_MAX = 0x7fffffff
+
+MMAL_CAMERA_RX_CONFIG_PACK = ct.c_uint32 # enum
+(
+   MMAL_CAMERA_RX_CONFIG_PACK_NONE,
+   MMAL_CAMERA_RX_CONFIG_PACK_8,
+   MMAL_CAMERA_RX_CONFIG_PACK_10,
+   MMAL_CAMERA_RX_CONFIG_PACK_12,
+   MMAL_CAMERA_RX_CONFIG_PACK_14,
+   MMAL_CAMERA_RX_CONFIG_PACK_16,
+   MMAL_CAMERA_RX_CONFIG_PACK_RAW10,
+   MMAL_CAMERA_RX_CONFIG_PACK_RAW12,
+) = range(8)
+MMAL_CAMERA_RX_CONFIG_PACK_MAX = 0x7fffffff
+
+class MMAL_PARAMETER_CAMERA_RX_CONFIG_T(ct.Structure):
+    _fields_ = [
+        ('hdr',                 MMAL_PARAMETER_HEADER_T),
+        ('decode',              MMAL_CAMERA_RX_CONFIG_DECODE),
+        ('encode',              MMAL_CAMERA_RX_CONFIG_ENCODE),
+        ('unpack',              MMAL_CAMERA_RX_CONFIG_UNPACK),
+        ('pack',                MMAL_CAMERA_RX_CONFIG_PACK),
+        ('data_lanes',          ct.c_uint32),
+        ('encode_block_length', ct.c_uint32),
+        ('embedded_data_lines', ct.c_uint32),
+        ('image_id',            ct.c_uint32),
+        ]
+
+class MMAL_PARAMETER_CAMERA_RX_TIMING_T(ct.Structure):
+    _fields_ = [
+        ('hdr',                 MMAL_PARAMETER_HEADER_T),
+        ('timing1',             ct.c_uint32),
+        ('timing2',             ct.c_uint32),
+        ('timing3',             ct.c_uint32),
+        ('timing4',             ct.c_uint32),
+        ('timing5',             ct.c_uint32),
+        ('term1',               ct.c_uint32),
+        ('term2',               ct.c_uint32),
+        ('cpi_timing1',         ct.c_uint32),
+        ('cpi_timing2',         ct.c_uint32),
+        ]
+
 # mmal_parameters_video.h ####################################################
 
 (
@@ -1242,7 +1390,10 @@ class MMAL_PARAMETER_STEREOSCOPIC_MODE_T(ct.Structure):
    MMAL_PARAMETER_VIDEO_ENCODE_INLINE_VECTORS,
    MMAL_PARAMETER_VIDEO_RENDER_STATS,
    MMAL_PARAMETER_VIDEO_INTERLACE_TYPE,
-) = range(MMAL_PARAMETER_GROUP_VIDEO, MMAL_PARAMETER_GROUP_VIDEO + 47)
+   MMAL_PARAMETER_VIDEO_INTERPOLATE_TIMESTAMPS,
+   MMAL_PARAMETER_VIDEO_ENCODE_SPS_TIMINGS,
+   MMAL_PARAMETER_VIDEO_MAX_NUM_CALLBACKS,
+) = range(MMAL_PARAMETER_GROUP_VIDEO, MMAL_PARAMETER_GROUP_VIDEO + 50)
 
 MMAL_DISPLAYTRANSFORM_T  = ct.c_uint32 # enum
 MMAL_DISPLAY_ROT0 = 0
@@ -1644,8 +1795,6 @@ class MMAL_PARAMETER_BYTES_T(ct.Structure):
         ('data', ct.POINTER(ct.c_uint8)),
         ]
 
-#define MMAL_FIXED_16_16_ONE  (1 << 16)
-
 class MMAL_PARAMETER_SCALEFACTOR_T(ct.Structure):
     _fields_ = [
         ('hdr',     MMAL_PARAMETER_HEADER_T),
@@ -1670,13 +1819,13 @@ class MMAL_PARAMETER_MIRROR_T(ct.Structure):
 class MMAL_PARAMETER_URI_T(ct.Structure):
     _fields_ = [
         ('hdr', MMAL_PARAMETER_HEADER_T),
-        ('uri', ct.c_char_p),
+        ('uri', ct.c_char * 200),
         ]
 
 class MMAL_PARAMETER_ENCODING_T(ct.Structure):
     _fields_ = [
         ('hdr',      MMAL_PARAMETER_HEADER_T),
-        ('encoding', ct.POINTER(ct.c_uint32)),
+        ('encoding', ct.c_uint32 * 30),
         ]
 
 class MMAL_PARAMETER_FRAME_RATE_T(ct.Structure):
@@ -2044,6 +2193,12 @@ MMAL_ENCODING_BGR16           = MMAL_FOURCC('BGR2')
 MMAL_ENCODING_BGR24           = MMAL_FOURCC('BGR3')
 MMAL_ENCODING_BGR32           = MMAL_FOURCC('BGR4')
 
+MMAL_ENCODING_BAYER_SBGGR10P  = MMAL_FOURCC('pBAA')
+MMAL_ENCODING_BAYER_SBGGR8    = MMAL_FOURCC('BA81')
+MMAL_ENCODING_BAYER_SBGGR12P  = MMAL_FOURCC('BY12')
+MMAL_ENCODING_BAYER_SBGGR16   = MMAL_FOURCC('BYR2')
+MMAL_ENCODING_BAYER_SBGGR10DPCM8 = MMAL_FOURCC('bBA8')
+
 MMAL_ENCODING_YUVUV128        = MMAL_FOURCC('SAND')
 MMAL_ENCODING_OPAQUE          = MMAL_FOURCC('OPQV')
 
@@ -2121,7 +2276,8 @@ MMAL_COMPONENT_DEFAULT_VIDEO_SPLITTER  = b"vc.ril.video_splitter"
 MMAL_COMPONENT_DEFAULT_AUDIO_DECODER   = b"none"
 MMAL_COMPONENT_DEFAULT_AUDIO_RENDERER  = b"vc.ril.audio_render"
 MMAL_COMPONENT_DEFAULT_MIRACAST        = b"vc.miracast"
-MMAL_COMPONENT_DEFAULT_CLOCk           = b"vc.clock"
+MMAL_COMPONENT_DEFAULT_CLOCK           = b"vc.clock"
+MMAL_COMPONENT_DEFAULT_CAMERA_INFO     = b"vc.camera_info"
 # The following two components aren't in the MMAL headers, but do exist
 MMAL_COMPONENT_DEFAULT_NULL_SINK       = b"vc.null_sink"
 MMAL_COMPONENT_DEFAULT_RESIZER         = b"vc.ril.resize"
